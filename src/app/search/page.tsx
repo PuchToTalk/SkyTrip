@@ -11,7 +11,7 @@ import DestinationsTable, {
 } from "@/components/DestinationsTable";
 import StationDrawer from "@/components/StationDrawer";
 import type { Station, WX } from "@/lib/windborne";
-import { getIATAFromStation, MAJOR_AIRPORTS, filterStationsByAirport, getClosestStationsToDestination, getDefaultHeatmapStations, getDefaultUSCenter, getAirportCoordinates, getSeason, temperatureToColor } from "@/lib/airports";
+import { getIATAFromStation, MAJOR_AIRPORTS, filterStationsByAirport, getClosestStationsToDestination, getDefaultHeatmapStations, getDefaultUSCenter, getAirportCoordinates, getSeason, temperatureToColor, calculateDistance } from "@/lib/airports";
 import { composite } from "@/lib/scoring";
 import type { FlightSearchResult } from "@/lib/flights/types";
 
@@ -116,6 +116,158 @@ function SearchPageContent() {
     }
   }, [filters.destination, stations.length, heatmapBatch]);
 
+  // Auto-fetch flights when destination is selected
+  useEffect(() => {
+    const fetchFlightsForDestination = async () => {
+      // Only fetch if destination and origin are selected
+      if (!filters.destination || !filters.origin || stations.length === 0) {
+        return;
+      }
+
+      setIsLoadingFlight(true);
+      setDestinations([]); // Clear previous results
+
+      try {
+        const airportCode = filters.destination; // Use destination directly as airport code
+        const airport = MAJOR_AIRPORTS.find((a) => a.code === airportCode);
+        
+        if (!airport) {
+          console.warn(`Airport ${airportCode} not found in major airports list`);
+          setIsLoadingFlight(false);
+          return;
+        }
+
+        console.log(`Fetching top 3 flights for ${airportCode} (${airport.name})`);
+
+        // Get closest station to this airport for temperature data
+        const closestStations = getClosestStationsToDestination(
+          stations,
+          airportCode,
+          150, // 150km radius
+          1 // Just need 1 closest station for temperature
+        );
+
+        let avgTemp = 0;
+        let stationId = "";
+        let stationName = "";
+
+        if (closestStations.length > 0) {
+          const closestStation = closestStations[0];
+          stationId = closestStation.id;
+          stationName = closestStation.name || "";
+
+          // Fetch weather data for temperature
+          try {
+            const weatherRes = await fetch(`/api/weather?station=${stationId}`);
+            if (weatherRes.ok) {
+              const weatherDataArray = await weatherRes.json();
+              if (Array.isArray(weatherDataArray) && weatherDataArray.length > 0) {
+                const now = Date.now();
+                const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+                const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+                
+                let dataToUse = weatherDataArray.filter((d: any) => {
+                  const timestamp = new Date(d.timestamp).getTime();
+                  return timestamp >= sevenDaysAgo && timestamp <= now;
+                });
+                
+                if (dataToUse.length === 0) {
+                  dataToUse = weatherDataArray.filter((d: any) => {
+                    const timestamp = new Date(d.timestamp).getTime();
+                    return timestamp >= thirtyDaysAgo && timestamp <= now;
+                  });
+                }
+                
+                if (dataToUse.length === 0 && weatherDataArray.length > 0) {
+                  dataToUse = weatherDataArray;
+                }
+                
+                if (dataToUse.length > 0) {
+                  avgTemp = dataToUse.reduce((sum: number, d: any) => sum + Number(d.temperature), 0) / dataToUse.length;
+                }
+              }
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch weather for station ${stationId}:`, error);
+          }
+        }
+
+        // Fetch flight prices - get top 3 flights for this airport
+        const flightParams = new URLSearchParams({
+          from: filters.origin,
+          to: airportCode,
+          outbound_date: filters.outboundDate,
+          type: filters.type,
+          sort_by: "2", // Sort by price
+        });
+
+        if (filters.returnDate && filters.type === "round-trip") {
+          flightParams.set("return_date", filters.returnDate);
+        }
+
+        if (filters.nonStopOnly) {
+          flightParams.set("stops", "0"); // 0 stops = non-stop
+        }
+
+        const flightRes = await fetch(`/api/flights?${flightParams.toString()}`);
+        if (!flightRes.ok) {
+          console.error(`Failed to fetch flights for ${airportCode}: ${flightRes.status}`);
+          setIsLoadingFlight(false);
+          return;
+        }
+
+        const flightResult: FlightSearchResult = await flightRes.json();
+        const topFlights = flightResult.all.slice(0, 3); // Get top 3 flights only
+
+        if (topFlights.length === 0) {
+          console.log(`No flights found for ${airportCode}`);
+          setIsLoadingFlight(false);
+          return;
+        }
+
+        // Create rows for top 3 flights
+        const allFlights: DestinationRow[] = topFlights.map((flight) => {
+          const score = composite(
+            avgTemp,
+            flight.price,
+            { min: filters.tempMin, max: filters.tempMax },
+            filters.budget
+          );
+
+          return {
+            destination: airport.name,
+            airportCode,
+            avgTemp,
+            lowestPrice: flight.price,
+            currency: flight.currency || "USD",
+            score: score / 100, // Convert to 0-1 range for display
+            stationId,
+            stationName,
+            flightUrl: flight.url,
+          };
+        });
+
+        // Sort by score (descending)
+        allFlights.sort((a, b) => b.score - a.score);
+        
+        // Update destinations with top 3 flights
+        setDestinations(allFlights);
+        console.log(`✅ Loaded ${allFlights.length} flights for ${airportCode} (${airport.name})`);
+      } catch (error) {
+        console.error("Error fetching flights for destination:", error);
+      } finally {
+        setIsLoadingFlight(false);
+      }
+    };
+
+    // Debounce: wait 500ms after destination changes before fetching
+    const timer = setTimeout(() => {
+      fetchFlightsForDestination();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [filters.destination, filters.origin, filters.outboundDate, filters.returnDate, filters.type, filters.tempMin, filters.tempMax, filters.budget, filters.nonStopOnly, stations]);
+
   // Fetch weather when station is selected
   const { data: weather, isLoading: loadingWeather } = useQuery({
     queryKey: ["weather", selectedStation?.id],
@@ -152,13 +304,168 @@ function SearchPageContent() {
     }
   }, [weather, selectedStation, loadingWeather]);
 
-  // Handle station click
+  // Handle station click - automatically fetch flights for top 3 options
   const handleStationClick = useCallback(
-    (station: Station) => {
+    async (station: Station) => {
       setSelectedStation(station);
       setShowDrawer(true);
+
+      // Find the closest airport to this station
+      if (!station.lat || !station.lon) {
+        console.warn("Station missing coordinates, cannot find airport");
+        return;
+      }
+
+      // Try to get IATA from station ID/name first
+      let airportCode = getIATAFromStation(station);
+      
+      // If not found, find the closest airport by coordinates
+      if (!airportCode) {
+        let minDistance = Infinity;
+        let closestAirport: { code: string; name: string } | null = null;
+        
+        for (const airport of MAJOR_AIRPORTS) {
+          const coords = getAirportCoordinates(airport.code);
+          if (coords) {
+            const distance = calculateDistance(
+              station.lat!,
+              station.lon!,
+              coords.lat,
+              coords.lon
+            );
+            if (distance < minDistance && distance <= 150) { // Within 150km
+              minDistance = distance;
+              closestAirport = airport;
+            }
+          }
+        }
+        
+        if (closestAirport) {
+          airportCode = closestAirport.code;
+          console.log(`Found closest airport ${airportCode} (${closestAirport.name}) at ${minDistance.toFixed(1)}km from station ${station.id}`);
+        } else {
+          console.warn(`No airport found within 150km of station ${station.id}`);
+          return;
+        }
+      }
+
+      // Check if origin is selected
+      if (!filters.origin) {
+        alert("Please select an origin airport first");
+        return;
+      }
+
+      setIsLoadingFlight(true);
+      try {
+        // Fetch weather data for temperature calculation
+        const weatherRes = await fetch(`/api/weather?station=${station.id}`);
+        let avgTemp = 0;
+        
+        if (weatherRes.ok) {
+          const weatherDataArray = await weatherRes.json();
+          if (Array.isArray(weatherDataArray) && weatherDataArray.length > 0) {
+            // Calculate average temperature (last 7 days, or last 30, or all)
+            const now = Date.now();
+            const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+            const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+            
+            let dataToUse = weatherDataArray.filter((d: any) => {
+              const timestamp = new Date(d.timestamp).getTime();
+              return timestamp >= sevenDaysAgo && timestamp <= now;
+            });
+            
+            if (dataToUse.length === 0) {
+              dataToUse = weatherDataArray.filter((d: any) => {
+                const timestamp = new Date(d.timestamp).getTime();
+                return timestamp >= thirtyDaysAgo && timestamp <= now;
+              });
+            }
+            
+            if (dataToUse.length === 0 && weatherDataArray.length > 0) {
+              dataToUse = weatherDataArray;
+            }
+            
+            if (dataToUse.length > 0) {
+              avgTemp = dataToUse.reduce((sum: number, d: any) => sum + Number(d.temperature), 0) / dataToUse.length;
+            }
+          }
+        }
+
+        // Fetch flight prices - get top flights
+        const flightParams = new URLSearchParams({
+          from: filters.origin,
+          to: airportCode,
+          outbound_date: filters.outboundDate,
+          type: filters.type,
+          sort_by: "2", // Sort by price
+        });
+
+        if (filters.returnDate && filters.type === "round-trip") {
+          flightParams.set("return_date", filters.returnDate);
+        }
+
+        if (filters.nonStopOnly) {
+          flightParams.set("stops", "0"); // 0 stops = non-stop
+        }
+
+        const flightRes = await fetch(`/api/flights?${flightParams.toString()}`);
+        if (!flightRes.ok) {
+          throw new Error("Failed to fetch flights");
+        }
+
+        const flightResult: FlightSearchResult = await flightRes.json();
+
+        // Get top 3 flights (or all if less than 3)
+        const topFlights = flightResult.all.slice(0, 3);
+
+        if (topFlights.length === 0) {
+          alert("No flights found for this destination");
+          setIsLoadingFlight(false);
+          return;
+        }
+
+        // Find airport name
+        const airport = MAJOR_AIRPORTS.find((a) => a.code === airportCode);
+
+        // Create rows for each top flight
+        const newRows: DestinationRow[] = topFlights.map((flight, index) => {
+          const score = composite(
+            avgTemp,
+            flight.price,
+            { min: filters.tempMin, max: filters.tempMax },
+            filters.budget
+          );
+
+          return {
+            destination: airport?.name || airportCode,
+            airportCode,
+            avgTemp,
+            lowestPrice: flight.price,
+            currency: flight.currency || "USD",
+            score: score / 100, // Convert to 0-1 range for display (DestinationsTable multiplies by 100)
+            stationId: station.id,
+            stationName: station.name,
+            flightUrl: flight.url,
+          };
+        });
+
+        // Update destinations table (replace existing entries for this station or add new ones)
+        setDestinations((prev) => {
+          // Remove old entries for this station
+          const filtered = prev.filter((r) => r.stationId !== station.id);
+          // Add new rows
+          return [...filtered, ...newRows];
+        });
+
+        console.log(`Added ${newRows.length} flights for station ${station.id} (${airportCode})`);
+      } catch (error: any) {
+        console.error("Error fetching flights:", error);
+        alert(`Failed to fetch flight prices: ${error.message || "Please try again."}`);
+      } finally {
+        setIsLoadingFlight(false);
+      }
     },
-    []
+    [filters]
   );
 
   // Handle airport selection from drawer
@@ -294,7 +601,7 @@ function SearchPageContent() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Map Section */}
-        <div className="flex-1 relative">
+        <div className="flex-1 min-w-0 relative">
           {loadingStations ? (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
               <div className="text-gray-600">Loading stations...</div>
@@ -337,7 +644,7 @@ function SearchPageContent() {
         </div>
 
         {/* Table Section */}
-        <div className="w-full md:w-96 lg:w-[500px] p-4 overflow-y-auto bg-gray-50">
+        <div className="w-full md:w-[500px] lg:w-[650px] xl:w-[700px] p-4 overflow-y-auto bg-gray-50 flex-shrink-0">
           <h2 className="text-xl font-semibold mb-4">Destinations</h2>
           <DestinationsTable rows={destinations} onOpenFlights={handleOpenFlights} />
         </div>

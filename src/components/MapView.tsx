@@ -28,11 +28,51 @@ interface StationWithTemp extends Station {
   color?: string;
 }
 
-function MapController({ center }: { center: [number, number] }) {
+function MapController({ center, zoom }: { center: [number, number]; zoom?: number }) {
   const map = useMap();
   useEffect(() => {
-    map.setView(center, map.getZoom());
-  }, [center, map]);
+    if (zoom !== undefined) {
+      map.setView(center, zoom);
+    } else {
+      map.setView(center, map.getZoom());
+    }
+  }, [center, zoom, map]);
+  return null;
+}
+
+// Component to handle destination-based zoom
+function DestinationZoomController({ 
+  destinationCenter, 
+  defaultCenter, 
+  defaultZoom 
+}: { 
+  destinationCenter?: { lat: number; lon: number } | null;
+  defaultCenter: [number, number];
+  defaultZoom: number;
+}) {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (destinationCenter) {
+      // Zoom to specific destination
+      // Check if it's the default world view center (40.0, 20.0) - means no specific destination
+      const isDefaultWorldView = 
+        Math.abs(destinationCenter.lat - 40.0) < 0.1 &&
+        Math.abs(destinationCenter.lon - 20.0) < 0.1;
+      
+      if (isDefaultWorldView) {
+        // Default heatmap view - wide zoom for global view
+        map.setView([destinationCenter.lat, destinationCenter.lon], defaultZoom);
+      } else {
+        // Specific destination selected - zoom to that city (level 8 for city/region view)
+        map.setView([destinationCenter.lat, destinationCenter.lon], 8);
+      }
+    } else {
+      // No destination selected - reset to default view
+      map.setView(defaultCenter, defaultZoom);
+    }
+  }, [destinationCenter, defaultCenter, defaultZoom, map]);
+  
   return null;
 }
 
@@ -471,12 +511,9 @@ export default function MapView({
     // This case should be handled by the newStations block above
     setIsLoadingWeather(false);
   }, [stations, season]);
-  // Default center (San Francisco)
-  const defaultCenter: [number, number] = [37.7749, -122.4194];
-  const defaultZoom = 3;
-  
-  // US center coordinates (for default heatmap view)
-  const usCenter: [number, number] = [39.8283, -98.5795];
+  // Default center for global heatmap view (when no destination selected)
+  const defaultCenter: [number, number] = [40.0, 20.0]; // Global view center
+  const defaultZoom = 4; // Wide zoom for global heatmap view
 
   // Use destination center if provided, otherwise calculate from stations
   const validStations = stationsWithTemp.filter(
@@ -490,14 +527,14 @@ export default function MapView({
     // Center on destination airport
     center = [destinationCenter.lat, destinationCenter.lon];
     
-    // Check if this is the default US center (default heatmap view)
-    const isDefaultUSView = 
-      Math.abs(destinationCenter.lat - usCenter[0]) < 0.1 &&
-      Math.abs(destinationCenter.lon - usCenter[1]) < 0.1;
+    // Check if this is the default world view center (default heatmap view)
+    const isDefaultWorldView = 
+      Math.abs(destinationCenter.lat - 40.0) < 0.1 &&
+      Math.abs(destinationCenter.lon - 20.0) < 0.1;
     
-    if (isDefaultUSView && validStations.length > 10) {
-      // Wide view for default heatmap covering all US stations
-      zoom = 4;
+    if (isDefaultWorldView) {
+      // Wide view for default heatmap covering global view
+      zoom = defaultZoom;
     } else {
       // Closer zoom for specific destination area
       zoom = 8;
@@ -596,10 +633,15 @@ export default function MapView({
             })}
           </>
         )}
+        <DestinationZoomController 
+          destinationCenter={destinationCenter}
+          defaultCenter={defaultCenter}
+          defaultZoom={defaultZoom}
+        />
         {selectedStation &&
           selectedStation.lat !== undefined &&
           selectedStation.lon !== undefined && (
-            <MapController center={[selectedStation.lat, selectedStation.lon]} />
+            <MapController center={[selectedStation.lat, selectedStation.lon]} zoom={10} />
           )}
       </MapContainer>
     </div>

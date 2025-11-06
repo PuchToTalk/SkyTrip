@@ -14,6 +14,13 @@ export class SerpApiFlightProvider implements FlightProvider {
     this.hl = process.env.SERPAPI_DEFAULT_HL || "en";
     this.gl = process.env.SERPAPI_DEFAULT_GL || "us";
     this.currency = process.env.SERPAPI_DEFAULT_CURRENCY || "USD";
+    
+    // Log configuration (without exposing key)
+    if (!this.apiKey || this.apiKey === "your_serpapi_key_here") {
+      console.warn("⚠️ SERPAPI_KEY is not set or is default value");
+    } else {
+      console.log(`✅ SerpApi configured (key length: ${this.apiKey.length})`);
+    }
   }
 
   async search(params: FlightSearchParams): Promise<FlightSearchResult> {
@@ -28,14 +35,22 @@ export class SerpApiFlightProvider implements FlightProvider {
       currency: this.currency,
     });
 
-    // Set trip type: only include if round-trip
+    // Set trip type: explicitly set for both one-way and round-trip
+    // SerpApi Google Flights API: type=2 for one-way, type=1 for round-trip
     if (params.type === "round-trip") {
-      searchParams.set("type", "1");
+      searchParams.set("type", "1"); // 1 = Round trip
       if (params.return_date) {
         searchParams.set("return_date", params.return_date);
+      } else {
+        // If round-trip but no return_date, SerpApi will error
+        // Default to one-way in this case
+        console.warn("Round-trip selected but no return_date provided, defaulting to one-way");
+        searchParams.set("type", "2"); // 2 = One-way
       }
+    } else {
+      // For one-way or undefined, explicitly set type to 2
+      searchParams.set("type", "2"); // 2 = One-way
     }
-    // For one-way, don't include type parameter
 
     if (params.deep_search) {
       searchParams.set("deep_search", "true");
@@ -52,43 +67,67 @@ export class SerpApiFlightProvider implements FlightProvider {
     }
 
     const url = `${this.baseUrl}?${searchParams.toString()}`;
+    console.log(`🔍 SerpApi request: ${url.replace(this.apiKey, "***")}`);
+    
     const response = await fetch(url);
+    const responseText = await response.text();
+    
+    console.log(`📡 SerpApi response status: ${response.status} ${response.statusText}`);
 
     if (!response.ok) {
-      const errorText = await response.text();
+      console.error(`❌ SerpApi HTTP error: ${response.status}`);
+      console.error(`Response (first 500 chars): ${responseText.substring(0, 500)}`);
+      
       let errorMessage = `SerpApi error: ${response.status}`;
       try {
-        const errorData = JSON.parse(errorText);
+        const errorData = JSON.parse(responseText);
         // Handle structured SerpApi errors
         if (errorData.error) {
           errorMessage = errorData.error;
           if (errorData.details && errorData.details.detail) {
             errorMessage += `: ${errorData.details.detail}`;
           }
+          console.error("Error details:", JSON.stringify(errorData, null, 2));
         } else if (errorData.message) {
           errorMessage = errorData.message;
         }
       } catch (e) {
         // If not JSON, use the text
-        errorMessage = errorText || errorMessage;
+        errorMessage = responseText || errorMessage;
       }
       throw new Error(errorMessage);
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("❌ Failed to parse SerpApi response as JSON");
+      console.error("Response (first 500 chars):", responseText.substring(0, 500));
+      throw new Error("Invalid JSON response from SerpApi");
+    }
     
     // Check if SerpApi returned an error in the response body
     if (data.error) {
       const errorMsg = data.details?.detail || data.error || "SerpApi returned an error";
+      console.error("❌ SerpApi error in response:", JSON.stringify(data, null, 2));
       throw new Error(errorMsg);
     }
+    
+    console.log(`✅ SerpApi response parsed successfully`);
 
     // Parse SerpApi response
     const flights: FlightPrice[] = [];
     let cheapest: FlightPrice | null = null;
 
+    console.log(`📊 Parsing flights from response:`);
+    console.log(`  - best_flights: ${data.best_flights ? data.best_flights.length : 0}`);
+    console.log(`  - other_flights: ${data.other_flights ? data.other_flights.length : 0}`);
+    console.log(`  - Available keys: ${Object.keys(data).join(", ")}`);
+
     // SerpApi Google Flights response structure
     if (data.best_flights && Array.isArray(data.best_flights)) {
+      console.log(`  Processing ${data.best_flights.length} best_flights...`);
       for (const flight of data.best_flights) {
         const price = this.extractPrice(flight.price);
         if (price) {
@@ -104,12 +143,15 @@ export class SerpApiFlightProvider implements FlightProvider {
           if (!cheapest || price < cheapest.price) {
             cheapest = flightPrice;
           }
+        } else {
+          console.warn(`  ⚠️ Could not extract price from flight:`, JSON.stringify(flight.price, null, 2));
         }
       }
     }
 
     // Also check other_flights if available
     if (data.other_flights && Array.isArray(data.other_flights)) {
+      console.log(`  Processing ${data.other_flights.length} other_flights...`);
       for (const flight of data.other_flights) {
         const price = this.extractPrice(flight.price);
         if (price) {
@@ -125,9 +167,41 @@ export class SerpApiFlightProvider implements FlightProvider {
           if (!cheapest || price < cheapest.price) {
             cheapest = flightPrice;
           }
+        } else {
+          console.warn(`  ⚠️ Could not extract price from flight:`, JSON.stringify(flight.price, null, 2));
         }
       }
     }
+
+    // Check for alternative response structures
+    if (flights.length === 0) {
+      console.warn("⚠️ No flights found in best_flights or other_flights");
+      console.warn("Response structure:", JSON.stringify(data, null, 2).substring(0, 1000));
+      
+      // Try alternative structure: flights array
+      if (data.flights && Array.isArray(data.flights)) {
+        console.log(`  Trying alternative structure: flights array (${data.flights.length} items)`);
+        for (const flight of data.flights) {
+          const price = this.extractPrice(flight.price);
+          if (price) {
+            const flightPrice: FlightPrice = {
+              price,
+              currency: this.currency,
+              airline: flight.airline,
+              duration: flight.duration,
+              stops: flight.stops,
+              url: flight.flight_link || flight.url,
+            };
+            flights.push(flightPrice);
+            if (!cheapest || price < cheapest.price) {
+              cheapest = flightPrice;
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`✅ Extracted ${flights.length} flights (cheapest: ${cheapest?.price || "N/A"})`);
 
     return {
       cheapest,
