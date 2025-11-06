@@ -8,6 +8,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "SkyTrip - Weather & Flight Planning",
   description: "Combine WindBorne weather data with Google Flights to find your perfect destination",
+  icons: {
+    icon: "/skytrip.png",
+    apple: "/skytrip.png",
+  },
 };
 
 export default function RootLayout({
