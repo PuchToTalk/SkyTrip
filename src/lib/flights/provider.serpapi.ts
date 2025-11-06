@@ -59,7 +59,15 @@ export class SerpApiFlightProvider implements FlightProvider {
       let errorMessage = `SerpApi error: ${response.status}`;
       try {
         const errorData = JSON.parse(errorText);
-        errorMessage = errorData.error || errorMessage;
+        // Handle structured SerpApi errors
+        if (errorData.error) {
+          errorMessage = errorData.error;
+          if (errorData.details && errorData.details.detail) {
+            errorMessage += `: ${errorData.details.detail}`;
+          }
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        }
       } catch (e) {
         // If not JSON, use the text
         errorMessage = errorText || errorMessage;
@@ -68,6 +76,12 @@ export class SerpApiFlightProvider implements FlightProvider {
     }
 
     const data = await response.json();
+    
+    // Check if SerpApi returned an error in the response body
+    if (data.error) {
+      const errorMsg = data.details?.detail || data.error || "SerpApi returned an error";
+      throw new Error(errorMsg);
+    }
 
     // Parse SerpApi response
     const flights: FlightPrice[] = [];

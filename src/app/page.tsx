@@ -1,28 +1,14 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import dynamic from "next/dynamic";
-import MapView from "@/components/MapView";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import FiltersBar, { type FilterState } from "@/components/FiltersBar";
-import DestinationsTable, {
-  type DestinationRow,
-} from "@/components/DestinationsTable";
-import StationDrawer from "@/components/StationDrawer";
-import type { Station, WX } from "@/lib/windborne";
-import { getIATAFromStation, MAJOR_AIRPORTS, filterStationsByAirport, filterStationsByOriginAndDestination, getAirportCoordinates, getSeason, temperatureToColor } from "@/lib/airports";
-import { composite } from "@/lib/scoring";
-import type { FlightSearchResult } from "@/lib/flights/types";
-
-// Dynamically import MapView to avoid SSR issues with Leaflet
-const DynamicMapView = dynamic(() => import("@/components/MapView"), {
-  ssr: false,
-});
 
 export default function Home() {
+  const router = useRouter();
   const [filters, setFilters] = useState<FilterState>({
-    origin: "", // Empty by default - no stations shown until origin is selected
-    destination: "", // No destination by default - show all stations near origin
+    origin: "",
+    destination: "",
     outboundDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0],
@@ -34,249 +20,151 @@ export default function Home() {
     nonStopOnly: false,
   });
 
-  const [selectedStation, setSelectedStation] = useState<Station | null>(null);
-  const [weatherData, setWeatherData] = useState<WX[]>([]);
-  const [dataQuality, setDataQuality] = useState<number>(100);
-  const [destinations, setDestinations] = useState<DestinationRow[]>([]);
-  const [isLoadingFlight, setIsLoadingFlight] = useState(false);
-  const [showDrawer, setShowDrawer] = useState(false);
-
-  // Fetch stations
-  const { data: stations = [], isLoading: loadingStations } = useQuery({
-    queryKey: ["stations"],
-    queryFn: async () => {
-      const res = await fetch("/api/stations");
-      if (!res.ok) throw new Error("Failed to fetch stations");
-      return res.json();
-    },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
-
-  // Fetch weather when station is selected
-  const { data: weather, isLoading: loadingWeather } = useQuery({
-    queryKey: ["weather", selectedStation?.id],
-    queryFn: async () => {
-      if (!selectedStation) return null;
-      const res = await fetch(`/api/weather?station=${selectedStation.id}`);
-      if (!res.ok) throw new Error("Failed to fetch weather");
-      return res.json();
-    },
-    enabled: !!selectedStation,
-    staleTime: 2 * 60 * 1000, // 2 minutes
-  });
-
-  // Update weather data and quality when query completes
-  useMemo(() => {
-    if (weather) {
-      // Check if weather is an error response
-      if (weather.error) {
-        console.warn(`Weather API error for station ${selectedStation?.id}:`, weather.error);
-        setWeatherData([]);
-        setDataQuality(0);
-      } else if (Array.isArray(weather)) {
-        console.log(`Weather data loaded for station ${selectedStation?.id}: ${weather.length} records`);
-        setWeatherData(weather);
-        // Calculate data quality (simplified - assume all returned data is valid after cleaning)
-        // In a real scenario, you'd compare original vs cleaned
-        setDataQuality(weather.length > 0 ? 100 : 0);
-      } else {
-        // Unexpected format
-        console.warn(`Unexpected weather data format for station ${selectedStation?.id}`);
-        setWeatherData([]);
-        setDataQuality(0);
-      }
-    } else if (selectedStation && !loadingWeather) {
-      // No data available
-      setWeatherData([]);
-      setDataQuality(0);
+  const handleSearch = () => {
+    if (!filters.destination) {
+      alert("Please select a destination airport");
+      return;
     }
-  }, [weather, selectedStation, loadingWeather]);
 
-  // Handle station click
-  const handleStationClick = useCallback(
-    (station: Station) => {
-      setSelectedStation(station);
-      setShowDrawer(true);
-    },
-    []
-  );
+    const params = new URLSearchParams({
+      origin: filters.origin,
+      outbound_date: filters.outboundDate,
+      budget: filters.budget.toString(),
+      temp_min: filters.tempMin.toString(),
+      temp_max: filters.tempMax.toString(),
+      type: filters.type,
+      non_stop: filters.nonStopOnly.toString(),
+    });
 
-  // Handle airport selection from drawer
-  const handleSelectAirport = useCallback(
-    async (airportCode: string) => {
-      if (!selectedStation) return;
-
-      setIsLoadingFlight(true);
-      try {
-        // Calculate average temperature (last 7 days)
-        const now = Date.now();
-        const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-        const recentData = weatherData.filter((d) => {
-          const timestamp = new Date(d.timestamp).getTime();
-          return timestamp >= sevenDaysAgo && timestamp <= now;
-        });
-
-        const avgTemp =
-          recentData.length > 0
-            ? recentData.reduce((sum, d) => sum + Number(d.temperature), 0) /
-              recentData.length
-            : 0;
-
-        // Fetch flight prices
-        const flightParams = new URLSearchParams({
-          from: filters.origin,
-          to: airportCode,
-          outbound_date: filters.outboundDate,
-          sort_by: "2", // price
-        });
-
-        if (filters.returnDate && filters.type === "round-trip") {
-          flightParams.set("return_date", filters.returnDate);
-        }
-
-        if (filters.nonStopOnly) {
-          flightParams.set("stops", "1");
-        }
-
-        const flightRes = await fetch(`/api/flights?${flightParams.toString()}`);
-        if (!flightRes.ok) throw new Error("Failed to fetch flights");
-
-        const flightResult: FlightSearchResult = await flightRes.json();
-
-        // Calculate score
-        const score = composite(
-          avgTemp,
-          flightResult.cheapest?.price || Infinity,
-          { min: filters.tempMin, max: filters.tempMax },
-          filters.budget
-        );
-
-        // Find airport name
-        const airport = MAJOR_AIRPORTS.find((a) => a.code === airportCode);
-
-        // Add to destinations table
-        const newRow: DestinationRow = {
-          destination: airport?.name || airportCode,
-          airportCode,
-          avgTemp,
-          lowestPrice: flightResult.cheapest?.price || null,
-          currency: flightResult.cheapest?.currency || "USD",
-          score,
-          stationId: selectedStation.id,
-          stationName: selectedStation.name,
-          flightUrl: flightResult.cheapest?.url,
-        };
-
-        setDestinations((prev) => {
-          // Avoid duplicates
-          const existing = prev.find(
-            (r) => r.stationId === selectedStation.id && r.airportCode === airportCode
-          );
-          if (existing) return prev;
-          return [...prev, newRow];
-        });
-
-        setShowDrawer(false);
-      } catch (error) {
-        console.error("Error fetching flights:", error);
-        alert("Failed to fetch flight prices. Please try again.");
-      } finally {
-        setIsLoadingFlight(false);
-      }
-    },
-    [selectedStation, weatherData, filters]
-  );
-
-  // Handle open flights
-  const handleOpenFlights = useCallback((row: DestinationRow) => {
-    if (row.flightUrl) {
-      window.open(row.flightUrl, "_blank");
-    } else {
-      // Fallback: construct Google Flights URL
-      const params = new URLSearchParams({
-        from: filters.origin,
-        to: row.airportCode,
-        outbound_date: filters.outboundDate,
-      });
-      if (filters.returnDate && filters.type === "round-trip") {
-        params.set("return_date", filters.returnDate);
-      }
-      window.open(
-        `https://www.google.com/travel/flights?${params.toString()}`,
-        "_blank"
-      );
+    if (filters.destination) {
+      params.set("destination", filters.destination);
     }
-  }, [filters]);
+    if (filters.returnDate) {
+      params.set("return_date", filters.returnDate);
+    }
+
+    router.push(`/search?${params.toString()}`);
+  };
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="bg-blue-600 text-white p-4 shadow-lg">
-        <h1 className="text-2xl font-bold">SkyTrip</h1>
-        <p className="text-sm text-blue-100">
-          Weather & Flight Planning with WindBorne Data
-        </p>
+      <header className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-xl">S</span>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">SkyTrip</h1>
+            </div>
+            <nav className="hidden md:flex items-center space-x-6">
+              <a href="#" className="text-gray-600 hover:text-gray-900">How it works</a>
+              <a href="#" className="text-gray-600 hover:text-gray-900">About</a>
+            </nav>
+          </div>
+        </div>
       </header>
 
-      {/* Filters */}
-      <FiltersBar filters={filters} onChange={setFilters} />
+      {/* Hero Section */}
+      <section className="relative flex-1 bg-gradient-to-br from-blue-50 via-white to-cyan-50">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-cyan-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
+        </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Map Section */}
-        <div className="flex-1 relative">
-          {loadingStations ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-              <div className="text-gray-600">Loading stations...</div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
+          {/* Main Heading */}
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4">
+              Find Your Perfect
+              <span className="text-blue-600"> Destination</span>
+            </h2>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              Combine real-time weather data with flight prices to discover the best travel destinations based on your preferences.
+            </p>
+          </div>
+
+          {/* Search Card */}
+          <div className="max-w-5xl mx-auto">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-100">
+              <FiltersBar filters={filters} onChange={setFilters} variant="compact" />
+              
+              <div className="mt-6 flex justify-center">
+                <button
+                  onClick={handleSearch}
+                  disabled={!filters.destination}
+                  className="px-8 py-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all transform hover:scale-105 shadow-lg"
+                >
+                  Find Destinations
+                </button>
+              </div>
             </div>
-          ) : (
-            <DynamicMapView
-              stations={
-                filters.origin
-                  ? (() => {
-                      const filtered = filterStationsByOriginAndDestination(
-                        stations,
-                        filters.origin,
-                        filters.destination || null,
-                        150 // 150km radius
-                      );
-                      console.log(`Filtered stations: ${filtered.length} (origin: ${filters.origin}, dest: ${filters.destination || "none"})`);
-                      return filtered;
-                    })()
-                  : [] // No stations if no origin selected
-              }
-              onStationClick={handleStationClick}
-              selectedStation={selectedStation}
-              destinationCenter={
-                filters.destination
-                  ? getAirportCoordinates(filters.destination)
-                  : filters.origin
-                  ? getAirportCoordinates(filters.origin)
-                  : null
-              }
-              outboundDate={filters.outboundDate}
-            />
-          )}
+          </div>
         </div>
+      </section>
 
-        {/* Table Section */}
-        <div className="w-full md:w-96 lg:w-[500px] p-4 overflow-y-auto bg-gray-50">
-          <h2 className="text-xl font-semibold mb-4">Destinations</h2>
-          <DestinationsTable rows={destinations} onOpenFlights={handleOpenFlights} />
+      {/* Features Section */}
+      <section className="bg-white py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h3 className="text-3xl font-bold text-gray-900 mb-4">
+              Why SkyTrip?
+            </h3>
+            <p className="text-lg text-gray-600">
+              Make informed travel decisions with data-driven insights
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="text-center p-6">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                </svg>
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-2">Real Weather Data</h4>
+              <p className="text-gray-600">
+                Access historical weather data from WindBorne stations to understand climate patterns before you travel.
+              </p>
+            </div>
+
+            <div className="text-center p-6">
+              <div className="w-16 h-16 bg-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-2">Best Prices</h4>
+              <p className="text-gray-600">
+                Compare flight prices from Google Flights to find the most affordable options for your trip.
+              </p>
+            </div>
+
+            <div className="text-center p-6">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-2">Smart Scoring</h4>
+              <p className="text-gray-600">
+                Get personalized recommendations based on your temperature preferences and budget constraints.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Station Drawer */}
-      {showDrawer && selectedStation && (
-        <StationDrawer
-          station={selectedStation}
-          weatherData={weatherData}
-          dataQuality={dataQuality}
-          onClose={() => setShowDrawer(false)}
-          isLoading={loadingWeather}
-        />
-      )}
+      {/* Footer */}
+      <footer className="bg-gray-50 border-t border-gray-200 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center text-gray-600">
+            <p>Powered by WindBorne Systems & Google Flights</p>
+            <p className="text-sm mt-2">© 2025 SkyTrip. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
-

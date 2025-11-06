@@ -17,9 +17,10 @@ export interface FilterState {
 interface FiltersBarProps {
   filters: FilterState;
   onChange: (filters: FilterState) => void;
+  variant?: "default" | "compact";
 }
 
-export default function FiltersBar({ filters, onChange }: FiltersBarProps) {
+export default function FiltersBar({ filters, onChange, variant = "default" }: FiltersBarProps) {
   const updateFilter = <K extends keyof FilterState>(
     key: K,
     value: FilterState[K]
@@ -32,9 +33,17 @@ export default function FiltersBar({ filters, onChange }: FiltersBarProps) {
     .toISOString()
     .split("T")[0];
 
+  const isCompact = variant === "compact";
+  const containerClass = isCompact
+    ? "bg-white p-6"
+    : "bg-white border-b border-gray-200 p-4 shadow-sm";
+  const gridClass = isCompact
+    ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+    : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4";
+
   return (
-    <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className={containerClass}>
+      <div className={gridClass}>
         {/* Origin */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -54,26 +63,24 @@ export default function FiltersBar({ filters, onChange }: FiltersBarProps) {
           </select>
         </div>
 
-        {/* Destination - Only show if origin is selected */}
-        {filters.origin && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Destination Airport
-            </label>
-            <select
-              value={filters.destination || ""}
-              onChange={(e) => updateFilter("destination", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Stations</option>
-              {MAJOR_AIRPORTS.map((airport) => (
-                <option key={airport.code} value={airport.code}>
-                  {airport.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        {/* Destination - Always visible */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Destination Airport
+          </label>
+          <select
+            value={filters.destination || ""}
+            onChange={(e) => updateFilter("destination", e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Select Destination</option>
+            {MAJOR_AIRPORTS.map((airport) => (
+              <option key={airport.code} value={airport.code}>
+                {airport.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {/* Outbound Date */}
         <div>
