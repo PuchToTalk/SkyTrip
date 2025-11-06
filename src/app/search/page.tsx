@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect, Suspense } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -54,6 +54,43 @@ function SearchPageContent() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [heatmapBatch, setHeatmapBatch] = useState(0); // Track which batch of cities to load (0, 1, or 2)
+  
+  // Table width state for resizing
+  const [tableWidth, setTableWidth] = useState<number>(850); // Default width in pixels
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(850);
+
+  // Handle resize start
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = tableWidth;
+  }, [tableWidth]);
+
+  // Handle resize
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = resizeStartX.current - e.clientX; // Negative when dragging left (table expands)
+      const newWidth = Math.max(400, Math.min(1200, resizeStartWidth.current + deltaX));
+      setTableWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
   
   // Background-loaded stations (loaded while destination filter is active, displayed when inactive)
   const [backgroundStations, setBackgroundStations] = useState<Station[]>([]);
@@ -418,41 +455,24 @@ function SearchPageContent() {
           return;
         }
 
-        // Sort flights by duration (shortest first) for ranking
-        const flightsSortedByDuration = [...topFlights].sort((a, b) => {
-          const durA = a.durationMinutes || Infinity;
-          const durB = b.durationMinutes || Infinity;
-          return durA - durB;
-        });
-
-        // Create a map to assign ranks (same duration = same rank, next rank skips)
-        const durationRankMap = new Map<number, number>();
-        let currentRank = 1;
-        let lastDuration = -1;
-        flightsSortedByDuration.forEach((flight) => {
-          const dur = flight.durationMinutes || Infinity;
-          if (dur !== lastDuration) {
-            currentRank = durationRankMap.size + 1;
-            lastDuration = dur;
-          }
-          if (!durationRankMap.has(dur)) {
-            durationRankMap.set(dur, currentRank);
-          }
-        });
+        // Find shortest duration for comparison
+        const shortestDuration = Math.min(
+          ...topFlights.map(f => f.durationMinutes || Infinity).filter(d => d !== Infinity)
+        );
+        const shortestDurationMinutes = shortestDuration !== Infinity ? shortestDuration : 0;
 
         // Create rows for top 3 flights
         const allFlights: DestinationRow[] = topFlights.map((flight) => {
-          // Find the rank of this flight by duration
           const dur = flight.durationMinutes || Infinity;
-          const durationRank = durationRankMap.get(dur) || 1;
+          const durationMinutes = dur !== Infinity ? dur : 0;
           
           const score = composite(
             avgTemp,
             flight.price,
             { min: filters.tempMin, max: filters.tempMax },
             filters.budget,
-            durationRank || 1,
-            topFlights.length
+            durationMinutes,
+            shortestDurationMinutes || durationMinutes // Fallback to current duration if no shortest
           );
 
           return {
@@ -512,11 +532,16 @@ function SearchPageContent() {
     return () => clearTimeout(timer);
   }, [filters.destination, filters.origin, filters.outboundDate, filters.returnDate, filters.type, filters.tempMin, filters.tempMax, filters.budget, filters.nonStopOnly, stations]);
 
-  // Load more destinations (5 cities per continent)
+  // Load more destinations (15 cities total, works even without destination)
   const handleLoadMoreDestinations = useCallback(async () => {
-    if (!filters.origin || !filters.destination || stations.length === 0) {
+    // Require at least stations to be loaded
+    if (stations.length === 0) {
+      console.warn("Stations not loaded yet");
       return;
     }
+
+    // Use default origin if not provided
+    const originAirport = filters.origin || "SFO"; // Default to San Francisco
 
     setIsLoadingMore(true);
 
@@ -628,7 +653,7 @@ function SearchPageContent() {
 
         // Fetch flights
         const flightParams = new URLSearchParams({
-          from: filters.origin,
+          from: originAirport,
           to: airportCode,
           outbound_date: filters.outboundDate,
           type: filters.type,
@@ -655,39 +680,24 @@ function SearchPageContent() {
           return null;
         }
 
-        // Sort by duration for ranking
-        const flightsSortedByDuration = [...topFlights].sort((a, b) => {
-          const durA = a.durationMinutes || Infinity;
-          const durB = b.durationMinutes || Infinity;
-          return durA - durB;
-        });
-
-        const durationRankMap = new Map<number, number>();
-        let currentRank = 1;
-        let lastDuration = -1;
-        flightsSortedByDuration.forEach((flight) => {
-          const dur = flight.durationMinutes || Infinity;
-          if (dur !== lastDuration) {
-            currentRank = durationRankMap.size + 1;
-            lastDuration = dur;
-          }
-          if (!durationRankMap.has(dur)) {
-            durationRankMap.set(dur, currentRank);
-          }
-        });
+        // Find shortest duration for comparison
+        const shortestDuration = Math.min(
+          ...topFlights.map(f => f.durationMinutes || Infinity).filter(d => d !== Infinity)
+        );
+        const shortestDurationMinutes = shortestDuration !== Infinity ? shortestDuration : 0;
 
         // Create rows for top 3 flights
         return topFlights.map((flight) => {
           const dur = flight.durationMinutes || Infinity;
-          const durationRank = durationRankMap.get(dur) || 1;
+          const durationMinutes = dur !== Infinity ? dur : 0;
           
           const score = composite(
             avgTemp,
             flight.price,
             { min: filters.tempMin, max: filters.tempMax },
             filters.budget,
-            durationRank,
-            topFlights.length
+            durationMinutes,
+            shortestDurationMinutes || durationMinutes // Fallback to current duration if no shortest
           );
 
           return {
@@ -709,27 +719,40 @@ function SearchPageContent() {
         });
       };
 
-      // Get 5 new cities per continent (excluding already loaded ones)
+      // Get 15 new cities total (distributed across continents, excluding already loaded ones)
       const newDestinations: DestinationRow[] = [];
       const continents: (keyof typeof AIRPORTS_BY_CONTINENT)[] = ['US', 'Europe', 'Asia', 'Africa'];
+      
+      // Calculate how many cities per continent (15 total = ~4 per continent, round up)
+      const citiesPerContinent = Math.ceil(15 / continents.length);
+      let totalLoaded = 0;
+      const maxCities = 15;
 
       for (const continent of continents) {
+        if (totalLoaded >= maxCities) break;
+        
         const airports = AIRPORTS_BY_CONTINENT[continent];
         const currentCount = loadedCitiesCount[continent] || 0;
         
         // Get airports that haven't been loaded yet
+        const remainingSlots = maxCities - totalLoaded;
+        const slotsForThisContinent = Math.min(citiesPerContinent, remainingSlots);
+        
         const airportsToLoad = airports
           .slice(currentCount) // Start from current count
           .filter(airport => !loadedAirportCodes.has(airport.code))
-          .slice(0, 5); // Take only 5 per continent
+          .slice(0, slotsForThisContinent);
 
         if (airportsToLoad.length === 0) continue;
 
         // Fetch flights for each airport (limit to prevent too many API calls)
         for (const airport of airportsToLoad) {
+          if (totalLoaded >= maxCities) break;
+          
           const rows = await fetchFlightsForAirport(airport.code, airport.name);
           if (rows && rows.length > 0) {
             newDestinations.push(...rows);
+            totalLoaded++;
             // Add delay to respect API rate limit (20 req/min = 3 seconds between requests)
             await new Promise(resolve => setTimeout(resolve, 3000)); // 3 seconds between requests
           }
@@ -983,44 +1006,27 @@ function SearchPageContent() {
           return;
         }
 
-        // Sort flights by duration (shortest first) for ranking
-        const flightsSortedByDuration = [...topFlights].sort((a, b) => {
-          const durA = a.durationMinutes || Infinity;
-          const durB = b.durationMinutes || Infinity;
-          return durA - durB;
-        });
-
-        // Create a map to assign ranks (same duration = same rank, next rank skips)
-        const durationRankMap = new Map<number, number>();
-        let currentRank = 1;
-        let lastDuration = -1;
-        flightsSortedByDuration.forEach((flight) => {
-          const dur = flight.durationMinutes || Infinity;
-          if (dur !== lastDuration) {
-            currentRank = durationRankMap.size + 1;
-            lastDuration = dur;
-          }
-          if (!durationRankMap.has(dur)) {
-            durationRankMap.set(dur, currentRank);
-          }
-        });
+        // Find shortest duration for comparison
+        const shortestDuration = Math.min(
+          ...topFlights.map(f => f.durationMinutes || Infinity).filter(d => d !== Infinity)
+        );
+        const shortestDurationMinutes = shortestDuration !== Infinity ? shortestDuration : 0;
 
         // Find airport name
         const airport = MAJOR_AIRPORTS.find((a) => a.code === airportCode);
 
         // Create rows for each top flight
         const newRows: DestinationRow[] = topFlights.map((flight, index) => {
-          // Find the rank of this flight by duration
           const dur = flight.durationMinutes || Infinity;
-          const durationRank = durationRankMap.get(dur) || 1;
+          const durationMinutes = dur !== Infinity ? dur : 0;
           
           const score = composite(
             avgTemp,
             flight.price,
             { min: filters.tempMin, max: filters.tempMax },
             filters.budget,
-            durationRank || 1,
-            topFlights.length
+            durationMinutes,
+            shortestDurationMinutes || durationMinutes // Fallback to current duration if no shortest
           );
 
           return {
@@ -1104,13 +1110,15 @@ function SearchPageContent() {
 
         // Calculate score
         // For single flight selection, rank is 1 (no comparison needed)
+        // For single flight, use its duration as both current and shortest
+        const singleFlightDuration = flightResult.cheapest?.durationMinutes || 0;
         const score = composite(
           avgTemp,
           flightResult.cheapest?.price || Infinity,
           { min: filters.tempMin, max: filters.tempMax },
           filters.budget,
-          1, // Single flight = rank 1
-          1  // Total flights = 1
+          singleFlightDuration,
+          singleFlightDuration // Same duration for comparison (single flight = perfect score)
         );
 
         // Find airport name
@@ -1199,7 +1207,7 @@ function SearchPageContent() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Map Section */}
-        <div className="flex-1 min-w-[300px] relative">
+        <div className="flex-1 min-w-[300px] relative" style={{ minWidth: '300px' }}>
           {loadingStations ? (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
               <div className="text-gray-600">Loading stations...</div>
@@ -1247,8 +1255,23 @@ function SearchPageContent() {
           )}
         </div>
 
+        {/* Resizer */}
+        <div
+          onMouseDown={handleResizeStart}
+          className={`hidden md:flex w-2 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-all relative items-center justify-center ${
+            isResizing ? 'bg-blue-500' : ''
+          }`}
+          style={{ userSelect: 'none' }}
+          title="Drag to resize table"
+        >
+          <div className="w-0.5 h-12 bg-gray-400 rounded-full hover:bg-blue-500 transition-colors" />
+        </div>
+
         {/* Table Section */}
-        <div className="w-full md:w-[600px] lg:w-[750px] xl:w-[850px] p-4 overflow-y-auto bg-gray-50 flex-shrink-0">
+        <div 
+          className="w-full p-4 overflow-y-auto bg-gray-50 flex-shrink-0"
+          style={{ width: `${tableWidth}px`, minWidth: '400px', maxWidth: '1200px' } as React.CSSProperties}
+        >
           <h2 className="text-xl font-semibold mb-4">Destinations</h2>
           <DestinationsTable 
             rows={destinations} 
