@@ -2,6 +2,8 @@
 
 A React/TypeScript web application that combines WindBorne weather data with Google Flights pricing (via SerpApi) to help you find travel destinations based on weather and flight prices.
 
+![SkyTrip Demo](./public/demo.gif)
+
 ## Tech Stack
 
 - Next.js 16 (App Router)

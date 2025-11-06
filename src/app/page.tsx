@@ -134,17 +134,11 @@ export default function Home() {
           <div className="mt-20 max-w-5xl mx-auto">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-gray-200 bg-white/80 backdrop-blur-sm">
               <div className="aspect-video bg-gradient-to-br from-blue-50/50 to-cyan-50/50 flex items-center justify-center">
-                {/* Placeholder for video/GIF - replace with actual video or GIF */}
-                <div className="text-center p-8">
-                  <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-blue-100 flex items-center justify-center">
-                    <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">See SkyTrip in Action</h3>
-                  <p className="text-gray-600">Watch how we combine weather data and flight prices to help you find your perfect destination</p>
-                </div>
+                <img 
+                  src="/demo.gif" 
+                  alt="SkyTrip Demo" 
+                  className="w-full h-full object-contain"
+                />
               </div>
             </div>
           </div>
