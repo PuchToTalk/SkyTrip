@@ -223,9 +223,9 @@ function SearchPageContent() {
             );
             
             for (const station of closest) {
-              const stationId = station.id || `${station.lat}-${station.lon}`;
+              const stationId = (station as Station).id || `${station.lat}-${station.lon}`;
               if (stationId && !addedStationIds.has(stationId)) {
-                loadedStations.push(station);
+                loadedStations.push(station as Station);
                 addedStationIds.add(stationId);
               }
             }
@@ -363,7 +363,7 @@ function SearchPageContent() {
         };
 
         if (closestStations.length > 0) {
-          const closestStation = closestStations[0];
+          const closestStation = closestStations[0] as Station;
           stationId = closestStation.id;
           stationName = closestStation.name || "";
 
@@ -611,7 +611,7 @@ function SearchPageContent() {
         };
 
         if (closestStations.length > 0) {
-          const closestStation = closestStations[0];
+          const closestStation = closestStations[0] as Station;
           stationId = closestStation.id;
           stationName = closestStation.name || "";
 
@@ -1225,7 +1225,7 @@ function SearchPageContent() {
                         5 // Limit to 5 closest stations
                       );
                       console.log(`Filtered stations: ${closest.length} (destination: ${filters.destination})`);
-                      return closest;
+                      return closest as Station[];
                     })()
                   : (() => {
                       // If background stations are loaded, use them; otherwise use default heatmap
@@ -1240,7 +1240,7 @@ function SearchPageContent() {
                       // Batch 2: 15 cities per continent (60 total) - loaded after 2 minutes
                       const defaultStations = getDefaultHeatmapStations(stations, 1, heatmapBatch);
                       console.log(`Default heatmap stations (batch ${heatmapBatch}): ${defaultStations.length} stations`);
-                      return defaultStations;
+                      return defaultStations as Station[];
                     })()
               }
               onStationClick={handleStationClick}
