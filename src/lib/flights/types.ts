@@ -13,7 +13,10 @@ export interface FlightPrice {
   price: number;
   currency: string;
   airline?: string;
-  duration?: string;
+  duration?: string; // Duration in format like "5h 30m" or total minutes as string
+  durationMinutes?: number; // Duration in minutes
+  departureTime?: string; // Format: "YYYY-MM-DD HH:MM"
+  arrivalTime?: string; // Format: "YYYY-MM-DD HH:MM"
   stops?: number;
   url?: string;
 }

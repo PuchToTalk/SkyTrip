@@ -43,18 +43,19 @@ export default function FiltersBar({ filters, onChange, variant = "default" }: F
 
   return (
     <div className={containerClass}>
-      <div className={gridClass}>
+      {/* Airbnb-style horizontal search bar */}
+      <div className="flex items-center gap-0 bg-white rounded-full border border-gray-300 shadow-md hover:shadow-lg transition-shadow duration-200 overflow-hidden">
         {/* Origin */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Origin Airport
+        <div className="flex-1 px-6 py-4 border-r border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer">
+          <label className="block text-xs font-semibold text-gray-800 mb-1">
+            Where from
           </label>
           <select
             value={filters.origin}
             onChange={(e) => updateFilter("origin", e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full text-sm text-gray-900 bg-transparent border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer"
           >
-            <option value="">Select Origin</option>
+            <option value="">Add origin</option>
             {MAJOR_AIRPORTS.map((airport) => (
               <option key={airport.code} value={airport.code}>
                 {airport.name}
@@ -63,17 +64,17 @@ export default function FiltersBar({ filters, onChange, variant = "default" }: F
           </select>
         </div>
 
-        {/* Destination - Always visible */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Destination Airport
+        {/* Destination */}
+        <div className="flex-1 px-6 py-4 border-r border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer">
+          <label className="block text-xs font-semibold text-gray-800 mb-1">
+            Where to
           </label>
           <select
             value={filters.destination || ""}
             onChange={(e) => updateFilter("destination", e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full text-sm text-gray-900 bg-transparent border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer"
           >
-            <option value="">Select Destination</option>
+            <option value="">Add destination</option>
             {MAJOR_AIRPORTS.map((airport) => (
               <option key={airport.code} value={airport.code}>
                 {airport.name}
@@ -83,108 +84,99 @@ export default function FiltersBar({ filters, onChange, variant = "default" }: F
         </div>
 
         {/* Outbound Date */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Outbound Date
+        <div className="flex-1 px-6 py-4 border-r border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer">
+          <label className="block text-xs font-semibold text-gray-800 mb-1">
+            Check in
           </label>
           <input
             type="date"
             value={filters.outboundDate || defaultOutbound}
             min={today}
             onChange={(e) => updateFilter("outboundDate", e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full text-sm text-gray-900 bg-transparent border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer"
           />
         </div>
 
         {/* Return Date */}
         {filters.type === "round-trip" && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Return Date
+          <div className="flex-1 px-6 py-4 border-r border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer">
+            <label className="block text-xs font-semibold text-gray-800 mb-1">
+              Check out
             </label>
             <input
               type="date"
               value={filters.returnDate || ""}
               min={filters.outboundDate || today}
               onChange={(e) => updateFilter("returnDate", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full text-sm text-gray-900 bg-transparent border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer"
             />
           </div>
         )}
 
-        {/* Trip Type */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Trip Type
-          </label>
+        {/* Additional filters - compact */}
+        <div className="flex items-center gap-4 px-6 py-4">
+          {/* Budget */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-800">Budget</label>
+            <input
+              type="number"
+              value={filters.budget}
+              min="0"
+              step="50"
+              onChange={(e) => updateFilter("budget", parseFloat(e.target.value) || 0)}
+              className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400"
+              placeholder="$1000"
+            />
+          </div>
+
+          {/* Temp Range */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-800">Temp</label>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={filters.tempMin}
+                min="-50"
+                max="50"
+                onChange={(e) => updateFilter("tempMin", parseFloat(e.target.value) || 0)}
+                className="w-16 px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400"
+                placeholder="Min"
+              />
+              <span className="text-gray-400">-</span>
+              <input
+                type="number"
+                value={filters.tempMax}
+                min="-50"
+                max="50"
+                onChange={(e) => updateFilter("tempMax", parseFloat(e.target.value) || 0)}
+                className="w-16 px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400"
+                placeholder="Max"
+              />
+              <span className="text-xs text-gray-500">°C</span>
+            </div>
+          </div>
+
+          {/* Trip Type */}
           <select
             value={filters.type}
             onChange={(e) =>
               updateFilter("type", e.target.value as "one-way" | "round-trip")
             }
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400"
           >
             <option value="one-way">One-way</option>
             <option value="round-trip">Round-trip</option>
           </select>
-        </div>
 
-        {/* Budget */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Budget ($)
-          </label>
-          <input
-            type="number"
-            value={filters.budget}
-            min="0"
-            step="50"
-            onChange={(e) => updateFilter("budget", parseFloat(e.target.value) || 0)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* Temp Range */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Min Temp (°C)
-          </label>
-          <input
-            type="number"
-            value={filters.tempMin}
-            min="-50"
-            max="50"
-            onChange={(e) => updateFilter("tempMin", parseFloat(e.target.value) || 0)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Max Temp (°C)
-          </label>
-          <input
-            type="number"
-            value={filters.tempMax}
-            min="-50"
-            max="50"
-            onChange={(e) => updateFilter("tempMax", parseFloat(e.target.value) || 0)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* Non-stop Only */}
-        <div className="flex items-end">
-          <label className="flex items-center space-x-2 cursor-pointer">
+          {/* Non-stop Only */}
+          <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={filters.nonStopOnly}
               onChange={(e) => updateFilter("nonStopOnly", e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              className="w-4 h-4 text-gray-600 border-gray-300 rounded focus:ring-gray-400"
             />
-            <span className="text-sm font-medium text-gray-700">
-              Non-stop only
-            </span>
+            <span className="text-xs font-medium text-gray-700">Non-stop</span>
           </label>
         </div>
       </div>

@@ -160,16 +160,24 @@ function ZoneCircle({
         }}
       >
         <Popup>
-          <div className="p-2">
-            <h3 className="font-semibold">{station.name || station.id}</h3>
+          <div className="p-3 min-w-[200px]">
+            <h3 className="font-bold text-gray-900 mb-2">
+              {station.name || station.id}
+            </h3>
             {station.avgTemp !== undefined ? (
-              <p className="text-sm">
-                Avg Temp: <span className="font-medium">{station.avgTemp.toFixed(1)}°C</span>
-              </p>
+              <div className="bg-gray-50 rounded-lg p-2 mb-2">
+                <p className="text-sm font-semibold text-gray-700">
+                  Avg Temp: <span className="text-gray-900 font-bold text-base">{station.avgTemp.toFixed(1)}°C</span>
+                </p>
+              </div>
             ) : (
-              <p className="text-sm text-gray-500">Loading temperature data...</p>
+              <div className="bg-gray-50 rounded-lg p-2 mb-2">
+                <p className="text-xs text-gray-500">
+                  Loading temperature data...
+                </p>
+              </div>
             )}
-            <p className="text-sm text-gray-600">Click to view details</p>
+            <p className="text-xs text-gray-500 italic">Click to view details</p>
           </div>
         </Popup>
       </Circle>
@@ -573,36 +581,48 @@ export default function MapView({
       
       {/* Loading indicator */}
       {isLoadingWeather && stationsWithTemp.length > 0 && (
-        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 z-[1000] border border-gray-200">
-          <p className="text-xs text-gray-600">
-            Loading temperature data... ({stationsWithTemp.filter(s => s.avgTemp !== undefined).length}/{stationsWithTemp.length})
-          </p>
+        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-4 z-[1000] border border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-gray-900 rounded-full"></div>
+            <div>
+              <p className="text-xs font-semibold text-gray-900">
+                Loading temperature data...
+              </p>
+              <p className="text-xs text-gray-500">
+                {stationsWithTemp.filter(s => s.avgTemp !== undefined).length}/{stationsWithTemp.length} stations
+              </p>
+            </div>
+          </div>
         </div>
       )}
       
       {/* Heatmap Legend */}
       {stationsWithTemp.length > 0 && (
         <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-4 z-[1000] border border-gray-200">
-          <h4 className="text-sm font-semibold mb-2">Temperature Heatmap</h4>
-          <div className="flex items-center space-x-2 mb-1">
-            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#007bff" }}></div>
-            <span className="text-xs text-gray-600">Cold (&lt; 10°C)</span>
-          </div>
-          <div className="flex items-center space-x-2 mb-1">
-            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#ffc107" }}></div>
-            <span className="text-xs text-gray-600">Moderate (10-20°C)</span>
-          </div>
-          <div className="flex items-center space-x-2 mb-1">
-            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#fd7e14" }}></div>
-            <span className="text-xs text-gray-600">Warm (20-30°C)</span>
-          </div>
-          <div className="flex items-center space-x-2 mb-1">
-            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#dc3545" }}></div>
-            <span className="text-xs text-gray-600">Hot (&ge; 30°C)</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#808080" }}></div>
-            <span className="text-xs text-gray-600">No Data / Loading</span>
+          <h4 className="text-sm font-bold text-gray-900 mb-3">
+            Temperature Heatmap
+          </h4>
+          <div className="space-y-2">
+            <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: "#007bff" }}></div>
+              <span className="text-xs font-medium text-gray-700">Cold (&lt; 10°C)</span>
+            </div>
+            <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: "#ffc107" }}></div>
+              <span className="text-xs font-medium text-gray-700">Moderate (10-20°C)</span>
+            </div>
+            <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: "#fd7e14" }}></div>
+              <span className="text-xs font-medium text-gray-700">Warm (20-30°C)</span>
+            </div>
+            <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: "#dc3545" }}></div>
+              <span className="text-xs font-medium text-gray-700">Hot (&ge; 30°C)</span>
+            </div>
+            <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: "#808080" }}></div>
+              <span className="text-xs font-medium text-gray-700">No Data / Loading</span>
+            </div>
           </div>
         </div>
       )}

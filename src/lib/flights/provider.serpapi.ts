@@ -125,26 +125,94 @@ export class SerpApiFlightProvider implements FlightProvider {
     console.log(`  - other_flights: ${data.other_flights ? data.other_flights.length : 0}`);
     console.log(`  - Available keys: ${Object.keys(data).join(", ")}`);
 
+    // Helper function to extract flight details from SerpApi flight object
+    const extractFlightDetails = (flightObj: any): Partial<FlightPrice> => {
+      const details: Partial<FlightPrice> = {};
+      
+      // Extract departure time from first flight segment and arrival time from last segment
+      if (flightObj.flights && Array.isArray(flightObj.flights) && flightObj.flights.length > 0) {
+        const firstFlight = flightObj.flights[0];
+        const lastFlight = flightObj.flights[flightObj.flights.length - 1];
+        
+        if (firstFlight.departure_airport && firstFlight.departure_airport.time) {
+          details.departureTime = firstFlight.departure_airport.time;
+        }
+        
+        if (lastFlight.arrival_airport && lastFlight.arrival_airport.time) {
+          details.arrivalTime = lastFlight.arrival_airport.time;
+        }
+        
+        // Extract airline from first flight segment (or use "Multiple" if different airlines)
+        const airlines = new Set<string>();
+        flightObj.flights.forEach((f: any) => {
+          if (f.airline) airlines.add(f.airline);
+        });
+        if (airlines.size === 1) {
+          details.airline = Array.from(airlines)[0];
+        } else if (airlines.size > 1) {
+          details.airline = "Multiple airlines";
+        }
+      }
+      
+      // Extract total duration (in minutes)
+      if (flightObj.total_duration !== undefined) {
+        details.durationMinutes = flightObj.total_duration;
+        // Convert to human-readable format
+        const hours = Math.floor(flightObj.total_duration / 60);
+        const minutes = flightObj.total_duration % 60;
+        details.duration = `${hours}h ${minutes}m`;
+      } else if (flightObj.flights && Array.isArray(flightObj.flights)) {
+        // Calculate total duration from individual segments
+        const totalMinutes = flightObj.flights.reduce((sum: number, f: any) => {
+          return sum + (f.duration || 0);
+        }, 0);
+        if (totalMinutes > 0) {
+          details.durationMinutes = totalMinutes;
+          const hours = Math.floor(totalMinutes / 60);
+          const minutes = totalMinutes % 60;
+          details.duration = `${hours}h ${minutes}m`;
+        }
+      }
+      
+      // Extract flight link
+      if (flightObj.flight_link) {
+        details.url = flightObj.flight_link;
+      }
+      
+      // Extract stops
+      if (flightObj.layovers && Array.isArray(flightObj.layovers)) {
+        details.stops = flightObj.layovers.length;
+      } else if (flightObj.flights && Array.isArray(flightObj.flights)) {
+        details.stops = flightObj.flights.length - 1;
+      }
+      
+      return details;
+    };
+
     // SerpApi Google Flights response structure
     if (data.best_flights && Array.isArray(data.best_flights)) {
       console.log(`  Processing ${data.best_flights.length} best_flights...`);
-      for (const flight of data.best_flights) {
-        const price = this.extractPrice(flight.price);
+      for (const flightObj of data.best_flights) {
+        const price = this.extractPrice(flightObj.price);
         if (price) {
+          const flightDetails = extractFlightDetails(flightObj);
           const flightPrice: FlightPrice = {
             price,
             currency: this.currency,
-            airline: flight.airline,
-            duration: flight.duration,
-            stops: flight.stops,
-            url: flight.flight_link,
+            airline: flightDetails.airline,
+            duration: flightDetails.duration,
+            durationMinutes: flightDetails.durationMinutes,
+            departureTime: flightDetails.departureTime,
+            arrivalTime: flightDetails.arrivalTime,
+            stops: flightDetails.stops,
+            url: flightDetails.url,
           };
           flights.push(flightPrice);
           if (!cheapest || price < cheapest.price) {
             cheapest = flightPrice;
           }
         } else {
-          console.warn(`  ⚠️ Could not extract price from flight:`, JSON.stringify(flight.price, null, 2));
+          console.warn(`  ⚠️ Could not extract price from flight:`, JSON.stringify(flightObj.price, null, 2));
         }
       }
     }
@@ -152,23 +220,27 @@ export class SerpApiFlightProvider implements FlightProvider {
     // Also check other_flights if available
     if (data.other_flights && Array.isArray(data.other_flights)) {
       console.log(`  Processing ${data.other_flights.length} other_flights...`);
-      for (const flight of data.other_flights) {
-        const price = this.extractPrice(flight.price);
+      for (const flightObj of data.other_flights) {
+        const price = this.extractPrice(flightObj.price);
         if (price) {
+          const flightDetails = extractFlightDetails(flightObj);
           const flightPrice: FlightPrice = {
             price,
             currency: this.currency,
-            airline: flight.airline,
-            duration: flight.duration,
-            stops: flight.stops,
-            url: flight.flight_link,
+            airline: flightDetails.airline,
+            duration: flightDetails.duration,
+            durationMinutes: flightDetails.durationMinutes,
+            departureTime: flightDetails.departureTime,
+            arrivalTime: flightDetails.arrivalTime,
+            stops: flightDetails.stops,
+            url: flightDetails.url,
           };
           flights.push(flightPrice);
           if (!cheapest || price < cheapest.price) {
             cheapest = flightPrice;
           }
         } else {
-          console.warn(`  ⚠️ Could not extract price from flight:`, JSON.stringify(flight.price, null, 2));
+          console.warn(`  ⚠️ Could not extract price from flight:`, JSON.stringify(flightObj.price, null, 2));
         }
       }
     }
